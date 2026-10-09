@@ -1,142 +1,194 @@
-// Bem-vindo ao
-// __________         __    __  .__                               __
-// \______   \_____ _/  |__/  |_|  |   ____   ______ ____ _____  |  | __ ____
-//  |    |  _/\__  \   __\   __\  | _/ __ \ /  ___//    \__  \ |  |/ // __ \
-//  |    |   \ / __ \|  |  |  | |  |_\  ___/ \___ \|   |  \/ __ \|    <\  ___/
-//  |________/(______/__|  |__| |____/\_____>______>___|__(______/__|__\_____>
-//
-// ESTE É O ARQUIVO QUE VOCÊ VAI EDITAR. Todo o resto do projeto existe
-// só para levar o estado do jogo até as quatro funções abaixo.
-//
-// Para começar, já deixamos pronta a lógica que impede a sua cobra de andar
-// para trás (ela morreria na hora). Os TODOs marcam os próximos passos.
-// Documentação: https://docs.battlesnake.com
+import { GameState, Coord, Snake } from "./models";
 
-import { GameState, Coord } from "./models";
-
-// GET / — chamado quando você cadastra a cobra no site e a cada partida.
-// Controla a aparência dela. Opções de cabeça, cauda e cor:
-// https://docs.battlesnake.com/guides/customizations
 export function info(): object {
-  if (process.env.DEBUG === "true") {
-    console.log("INFO");
-  }
-
   return {
     apiversion: "1",
-    author: "",           // TODO: coloque aqui o SEU usuário do Battlesnake
-    color: "#8B0000",     // TODO: escolha a cor da sua cobra
-    head: "tiger-king",   // TODO: escolha a cabeça
-    tail: "hook",         // TODO: escolha a cauda
-    version: "1.0.0",
+    author: "Giulia",
+    color: "#f800cb",
+    head: "evil",
+    tail: "block-bum",
+    version: "2.0.0",
   };
 }
 
-// POST /start — chamado uma vez, quando a partida começa.
-// Bom lugar para preparar qualquer estado inicial.
 export function start(gameState: GameState): void {
-  console.log(`JOGO COMEÇOU (partida ${gameState.game.id})`);
+  console.log(`INICIANDO BATTLESNAKE VENCER (Partida ${gameState.game.id})`);
 }
 
-// POST /end — chamado uma vez, quando a partida termina.
 export function end(gameState: GameState): void {
-  console.log(`FIM DE JOGO após ${gameState.turn} turnos`);
+  console.log(`FIM DA PARTIDA (Turno ${gameState.turn})`);
 }
 
-// POST /move — chamado a cada turno. Aqui mora a inteligência da sua cobra.
-// Precisa devolver "up", "down", "left" ou "right".
-// Exemplo do JSON recebido: https://docs.battlesnake.com/api/example-move
+const MOVES: Array<[string, number, number]> = [
+  ["up", 0, 1],
+  ["down", 0, -1],
+  ["left", -1, 0],
+  ["right", 1, 0],
+];
+
+const same = (a: Coord, b: Coord) => a.x === b.x && a.y === b.y;
+const distance = (a: Coord, b: Coord) => Math.abs(a.x - b.x) + Math.abs(a.y - b.y);
+
+class AdvancedGrid {
+  public width: number;
+  public height: number;
+  public expiryMap: number[]; 
+
+  constructor(width: number, height: number, snakes: Snake[]) {
+    this.width = width;
+    this.height = height;
+    this.expiryMap = new Array(width * height).fill(0);
+
+    for (const snake of snakes) {
+      const len = snake.body.length;
+      for (let i = 0; i < len; i++) {
+        const seg = snake.body[i];
+        if (this.inside(seg)) {
+          const turnsRemaining = len - i;
+          const idx = this.idx(seg);
+          this.expiryMap[idx] = Math.max(this.expiryMap[idx], turnsRemaining);
+        }
+      }
+    }
+  }
+
+  inside(c: Coord): boolean {
+    return c.x >= 0 && c.y >= 0 && c.x < this.width && c.y < this.height;
+  }
+
+  idx(c: Coord): number {
+    return c.y * this.width + c.x;
+  }
+
+  isSolidAt(c: Coord, turnOffset: number): boolean {
+    if (!this.inside(c)) return true;
+    return this.expiryMap[this.idx(c)] > turnOffset;
+  }
+
+  getVoronoiTerritory(myHead: Coord, myLength: number, opponents: Snake[]): number {
+    const distMap = new Array(this.width * this.height).fill(Infinity);
+    const ownerMap = new Array(this.width * this.height).fill(null);
+
+    const queue: Array<{ coord: Coord; dist: number; ownerId: string; length: number }> = [];
+
+    queue.push({ coord: myHead, dist: 0, ownerId: "me", length: myLength });
+    distMap[this.idx(myHead)] = 0;
+
+    // Adiciona cobras adversárias
+    for (const opp of opponents) {
+      queue.push({ coord: opp.head, dist: 0, ownerId: opp.id, length: opp.length });
+      distMap[this.idx(opp.head)] = 0;
+    }
+
+    let mySpaceCount = 0;
+
+    while (queue.length > 0) {
+      const current = queue.shift()!;
+
+      for (const [, dx, dy] of MOVES) {
+        const next = { x: current.coord.x + dx, y: current.coord.y + dy };
+        if (!this.inside(next) || this.isSolidAt(next, current.dist + 1)) continue;
+
+        const nextIdx = this.idx(next);
+        const nextDist = current.dist + 1;
+
+        if (nextDist < distMap[nextIdx]) {
+          distMap[nextIdx] = nextDist;
+          ownerMap[nextIdx] = current.ownerId;
+          queue.push({ coord: next, dist: nextDist, ownerId: current.ownerId, length: current.length });
+        } else if (nextDist === distMap[nextIdx]) {
+          // Em caso de empate de distância, se a cobra adversária for >= a nós, perdemos a posse da casa
+          if (current.ownerId !== "me" && current.length >= myLength) {
+            ownerMap[nextIdx] = "contested";
+          }
+        }
+      }
+    }
+
+    for (let i = 0; i < ownerMap.length; i++) {
+      if (ownerMap[i] === "me") mySpaceCount++;
+    }
+
+    return mySpaceCount;
+  }
+}
+
 export function move(gameState: GameState): { move: string } {
-  const isMoveSafe: Record<string, boolean> = {
-    up: true,
-    down: true,
-    left: true,
-    right: true,
-  };
+  const me = gameState.you;
+  const head = me.head;
+  const { width, height, food } = gameState.board;
+  const grid = new AdvancedGrid(width, height, gameState.board.snakes);
+  const opponents = gameState.board.snakes.filter((s) => s.id !== me.id);
 
-  // --- Impedir que a cobra ande para trás (já implementado) ---
-  // O pescoço é a parte do corpo logo atrás da cabeça. Voltar por cima dele
-  // é morte certa, então marcamos aquela direção como insegura.
-  const myHead: Coord = gameState.you.body[0];
-  const myNeck: Coord | undefined = gameState.you.body[1];
+  let bestMove = "up";
+  let highestScore = -Infinity;
 
-  if (myNeck) {
-    if (myNeck.x < myHead.x) {
-      // pescoço à esquerda da cabeça -> não vá para a esquerda
-      isMoveSafe["left"] = false;
-    } else if (myNeck.x > myHead.x) {
-      // pescoço à direita da cabeça -> não vá para a direita
-      isMoveSafe["right"] = false;
-    } else if (myNeck.y < myHead.y) {
-      // pescoço abaixo da cabeça -> não desça
-      isMoveSafe["down"] = false;
-    } else if (myNeck.y > myHead.y) {
-      // pescoço acima da cabeça -> não suba
-      isMoveSafe["up"] = false;
+  for (const [dir, dx, dy] of MOVES) {
+    const target = { x: head.x + dx, y: head.y + dy };
+
+    // 1. Morte Imediata: Parede ou segmento sólido
+    if (grid.isSolidAt(target, 1)) continue;
+
+    let score = 0;
+
+    // 2. Head-to-Head Ativo / Preditivo
+    let fatalH2H = false;
+    for (const opp of opponents) {
+      const oppDist = distance(opp.head, target);
+
+      if (oppDist === 1) {
+        if (opp.length >= me.length) {
+          // Risco real de colisão letal no próximo turno
+          fatalH2H = true;
+          break;
+        } else {
+          // Oportunidade de eliminar cobra menor
+          score += 450;
+        }
+      }
+    }
+    if (fatalH2H) continue; // Evita totalmente o movimento fatal de H2H
+
+    // 3. Controle Espacial Dinâmico (Voronoi)
+    const territorySize = grid.getVoronoiTerritory(target, me.length, opponents);
+    score += territorySize * 15;
+
+    // Penalidade massiva se o território for menor que o próprio corpo (armadilha/beco)
+    if (territorySize < me.length) {
+      score -= 2000;
+    }
+
+    // 4. Perseguição de Cauda (Escape de Emergência)
+    const myTail = me.body[me.body.length - 1];
+    const distToTail = distance(target, myTail);
+    score -= distToTail * 2; // Mantém leve atração para estar perto da própria saída
+
+    // 5. Gestão Agressiva de Comida
+    if (food.length > 0) {
+      const closestFood = food.reduce((prev, curr) =>
+        distance(target, curr) < distance(target, prev) ? curr : prev
+      );
+      const foodDist = distance(target, closestFood);
+
+      const isLargest = opponents.every((opp) => me.length > opp.length);
+
+      if (me.health < 35) {
+        // Prioridade MÁXIMA por comida em caso de fome
+        score += Math.max(0, 300 - foodDist * 20);
+      } else if (!isLargest) {
+        // Se não for a maior cobra da mesa, busca comida para liderar
+        score += Math.max(0, 100 - foodDist * 5);
+      } else {
+        // Se já for a maior cobra, evita comer à toa para não encher o mapa
+        score -= foodDist * 2;
+      }
+    }
+
+    if (score > highestScore) {
+      highestScore = score;
+      bestMove = dir;
     }
   }
 
-  // 2. Impedir que a cobra saia do tabuleiro (paredes)
-  const boardWidth = gameState.board.width;
-  const boardHeight = gameState.board.height;
-
-  if (myHead.x + 1 >= boardWidth) {
-    isMoveSafe["right"] = false;
-  }
-  if (myHead.x - 1 < 0) {
-    isMoveSafe["left"] = false;
-  }
-  if (myHead.y + 1 >= boardHeight) {
-    isMoveSafe["up"] = false;
-  }
-  if (myHead.y - 1 < 0) {
-    isMoveSafe["down"] = false;
-  }
-
-  // 3. Impedir que a cobra bata no próprio corpo
-  const myBody = gameState.you.body;
-  if (myBody) {
-    for (const segment of myBody) {
-      if (segment.x === myHead.x + 1 && segment.y === myHead.y) {
-        isMoveSafe["right"] = false;
-      }
-      if (segment.x === myHead.x - 1 && segment.y === myHead.y) {
-        isMoveSafe["left"] = false;
-      }
-      if (segment.x === myHead.x && segment.y === myHead.y + 1) {
-        isMoveSafe["up"] = false;
-      }
-      if (segment.x === myHead.x && segment.y === myHead.y - 1) {
-        isMoveSafe["down"] = false;
-      }
-    }
-  }
-
-  // TODO: Passo 3 — impedir que a cobra bata nas adversárias
-  // const opponents = gameState.board.snakes;
-
-  // Sobrou alguma direção segura?
-  const safeMoves = Object.keys(isMoveSafe).filter((dir) => isMoveSafe[dir]);
-
-  if (safeMoves.length === 0) {
-    // Emergência: todas as direções são perigosas.
-    // Escolhemos uma ao acaso entre as 4 — melhor do que travar.
-    const allMoves = ["up", "down", "left", "right"];
-    const fallback = allMoves[Math.floor(Math.random() * allMoves.length)];
-    if (process.env.DEBUG === "true") {
-      console.log(`MOVE ${gameState.turn}: sem saída! emergência -> ${fallback}`);
-    }
-    return { move: fallback };
-  }
-
-  // Escolhe uma direção segura ao acaso.
-  const nextMove = safeMoves[Math.floor(Math.random() * safeMoves.length)];
-
-  // TODO: Passo 4 — ir atrás da comida em vez de sortear, para não morrer de fome
-  // const food = gameState.board.food;
-
-  if (process.env.DEBUG === "true") {
-    console.log(`MOVE ${gameState.turn}: ${nextMove}`);
-  }
-  return { move: nextMove };
+  return { move: bestMove };
 }
