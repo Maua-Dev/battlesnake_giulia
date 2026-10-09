@@ -1,0 +1,71 @@
+name: AWS Destroy
+on:
+  workflow_dispatch:
+jobs:
+  DestroyAWS:
+    environment:
+      name: ${{ github.ref_name }}
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-region: us-east-1
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          role-session-name: github-action
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: 'npm'
+
+      - name: Setting stage and stack name
+        run: |
+          REPO_NAME="${{ github.event.repository.name }}"
+          STAGE="${{ github.ref_name }}"
+          REPO_SLUG=${REPO_NAME//_/-}
+          STACK_NAME="battlesnake-${REPO_SLUG}-${STAGE}"
+          PROJECT_NAME="battlesnake-${REPO_SLUG}"
+
+          echo "REPO_NAME=${REPO_NAME}" >> $GITHUB_ENV
+          echo "REPO_SLUG=${REPO_SLUG}" >> $GITHUB_ENV
+          echo "STAGE=${STAGE}" >> $GITHUB_ENV
+          echo "STACK_NAME=${STACK_NAME}" >> $GITHUB_ENV
+          echo "PROJECT_NAME=${PROJECT_NAME}" >> $GITHUB_ENV
+
+      - name: Installing Dependencies to Destroy
+        run: |
+          cd iac
+          npm install -g aws-cdk
+          npm i
+
+      - name: Installing Dependencies to BattleSnake
+        run: |
+          npm i
+          npm run build
+
+      - name: Setup envs
+        run: |
+          echo AWS_REGION=us-east-1 >> $GITHUB_ENV
+          echo AWS_ACCOUNT_ID=${{ secrets.AWS_ACCOUNT_ID_DEV }} >> $GITHUB_ENV
+          echo GITHUB_REF_NAME=${{ github.ref_name }} >> $GITHUB_ENV
+          echo REPO_NAME=${{ env.REPO_NAME }} >> $GITHUB_ENV
+          echo REPO_SLUG=${{ env.REPO_SLUG }} >> $GITHUB_ENV
+
+          echo ${{ env.AWS_REGION }}
+          echo ${{ env.AWS_ACCOUNT_ID }}
+          echo ${{ env.STACK_NAME }}
+          echo ${{ env.GITHUB_REF_NAME }}
+          echo ${{ env.REPO_NAME }}
+
+      - name: Destroy CDK
+        run: |
+          cd iac
+          cdk destroy --force

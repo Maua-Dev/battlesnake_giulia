@@ -1,0 +1,28 @@
+{
+  "name": "battlesnake-nodejs-template",
+  "version": "1.0.0",
+  "description": "Battlesnake template in TypeScript + Express on AWS Lambda",
+  "main": "src/app/index.ts",
+  "scripts": {
+    "build": "tsc",
+    "start": "ts-node src/app/index.ts",
+    "pretest": "tsc -p tsconfig.test.json",
+    "test": "cd dist-test && node --test"
+  },
+  "engines": {
+    "node": ">=24"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "express": "^5.2.1",
+    "serverless-http": "^4.0.0"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.6",
+    "@types/node": "^24.13.3",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.9.3"
+  }
+}

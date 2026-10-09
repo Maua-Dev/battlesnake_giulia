@@ -1,0 +1,14 @@
+{
+  // Config usada só pelos testes. O tsconfig.json principal compila apenas
+  // src/app para dist/ (que vira o pacote da Lambda, com handler "index.handler").
+  // Aqui a raiz é o projeto inteiro, então a saída fica dist-test/src/app e
+  // dist-test/tests — e o `node --test` roda o JavaScript já compilado.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "rootDir": ".",
+    "outDir": "dist-test",
+    "sourceMap": false
+  },
+  "include": ["src/app/**/*", "tests/**/*"],
+  "exclude": ["node_modules", "dist", "dist-test", "iac"]
+}
